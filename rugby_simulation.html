@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ラグビー戦術3Dシミュレーション プロトタイプ v6.2</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/FontLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/geometries/TextGeometry.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { margin: 0; overflow: hidden; font-family: 'Inter', sans-serif; }
+        #container { width: 100vw; height: 100vh; display: block; }
+        .control-panel {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background-color: rgba(255, 255, 255, 0.92); 
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.25); 
+            z-index: 10;
+            max-width: 380px; 
+            max-height: calc(100vh - 20px); 
+            overflow-y: auto; 
+        }
+        .control-panel label, .control-panel select, .control-panel button, .control-panel input {
+            display: block;
+            margin-bottom: 10px;
+            font-size: 14px;
+        }
+        .control-panel select, .control-panel button, .control-panel input[type="text"] {
+            width: 100%;
+            padding: 10px; 
+            border-radius: 5px; 
+            border: 1px solid #bbb; 
+            box-sizing: border-box;
+        }
+        .control-panel button {
+            background-color: #2980b9; 
+            color: white;
+            cursor: pointer;
+            transition: background-color 0.2s ease-in-out;
+            font-weight: 500;
+        }
+        .control-panel button:hover {
+            background-color: #3498db;
+        }
+        .control-panel button.secondary {
+            background-color: #7f8c8d;
+        }
+        .control-panel button.secondary:hover {
+            background-color: #95a5a6;
+        }
+         .control-panel button.danger {
+            background-color: #c0392b; 
+        }
+        .control-panel button.danger:hover {
+            background-color: #e74c3c;
+        }
+        .control-panel h3 {
+            margin-top: 0;
+            margin-bottom: 15px; 
+            font-size: 17px; 
+            font-weight: 600; 
+            color: #333;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 8px;
+        }
+        .hidden { display: none; }
+        .divider {
+            border-top: 1px solid #ddd; 
+            margin-top: 20px; 
+            margin-bottom: 20px;
+        }
+        #currentPhaseIndicator {
+            font-size: 15px;
+            font-weight: bold;
+            color: #2c3e50;
+            margin-bottom: 15px;
+            text-align: center;
+            padding: 8px;
+            background-color: #ecf0f1;
+            border-radius: 4px;
+        }
+        .collective-move-controls select, .collective-move-controls button {
+            margin-bottom: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div id="container"></div>
+    <div class="control-panel">
+        <h3>セットプレー選択</h3>
+        <label for="playType">プレー種類:</label>
+        <select id="playType">
+            <option value="none">なし</option>
+            <option value="scrum">スクラム</option>
+            <option value="lineout">ラインアウト</option>
+            <option value="kickoff">キックオフ</option>
+        </select>
+
+        <div id="lineoutOptions" class="hidden mt-2">
+            <label for="lineoutPlayers">ラインアウト人数 (スローワー除く):</label>
+            <select id="lineoutPlayers">
+                <option value="4">4人</option>
+                <option value="5">5人</option>
+                <option value="6">6人</option>
+                <option value="7">7人 (ALL)</option>
+            </select>
+        </div>
+
+        <label for="playArea">エリア (スクラム/ラインアウト/キックオフ):</label>
+        <select id="playArea">
+            <option value="center_22m_own">自陣22m中央 (スクラム)</option>
+            <option value="left_goal_5m_own">自陣ゴール前5m左 (スクラム)</option>
+            <option value="halfway_right_15m">ハーフウェイ右タッチ際15m (スクラム)</option>
+            <option value="center_22m_opponent">敵陣22m中央 (スクラム)</option>
+            <option value="left_touch_22m_own_lineout">自陣22m付近 左タッチ (ラインアウト)</option>
+            <option value="right_touch_halfway_lineout">ハーフウェイ付近 右タッチ (ラインアウト)</option>
+            <option value="left_goal_5m_opponent_lineout">敵陣ゴール前5m 左タッチ (ラインアウト)</option>
+            <option value="kickoff_center">センターキックオフ (キックオフ)</option>
+        </select>
+        <button id="setPlayButton">初期配置/リセット</button>
+
+        <div class="divider"></div>
+        <h3>フェーズ進行</h3>
+        <div id="currentPhaseIndicator">現在のフェーズ: 初期配置</div>
+        <button id="nextPhaseButton">次のフェーズへ進む</button>
+        <button id="prevPhaseButton" class="secondary">前のフェーズへ戻る</button>
+
+        <div class="divider"></div>
+        <h3>一括移動 (1-3-3-1 エッジラック)</h3>
+        <div class="collective-move-controls">
+            <label for="edgeRackSide">ラックサイド:</label>
+            <select id="edgeRackSide">
+                <option value="right">右サイド</option>
+                <option value="left">左サイド</option>
+            </select>
+            <button id="applyEdgeRackFormationButton">1-3-3-1 ポッド形成</button>
+        </div>
+
+
+        <div class="divider"></div>
+        <h3>配置テンプレート</h3>
+        <label for="templateName">テンプレート名:</label>
+        <input type="text" id="templateName" placeholder="例: 基本攻撃フォーメーション">
+        <button id="saveTemplateButton">現在の全フェーズを保存</button>
+        
+        <label for="loadTemplateSelect" class="mt-2">保存済みテンプレート:</label>
+        <select id="loadTemplateSelect">
+            <option value="">選択してください</option>
+        </select>
+        <button id="loadTemplateButton" class="mt-1">選択したテンプレートを読込</button>
+        <button id="deleteTemplateButton" class="danger mt-1">選択したテンプレートを削除</button>
+
+    </div>
+
+    <script>
+        // --- グローバル変数と定数 ---
+        let scene, camera, renderer, controls;
+        let ground, coach, ball; 
+        const players = { own: [], opponent: [] };
+
+        const PLAYER_FW_RADIUS = 0.5; 
+        const PLAYER_BK_RADIUS = 0.4; 
+        const PLAYER_FW_HEIGHT = 1.6; 
+        const PLAYER_BK_HEIGHT = 1.8; 
+        const COACH_MODEL_HEIGHT = 1.9;
+        const HEAD_RADIUS_RATIO = 0.35; 
+        const ARM_LENGTH_RATIO = 0.7; 
+        const LEG_LENGTH_RATIO = 0.8; 
+        const LIMB_RADIUS_RATIO = 0.15; 
+
+        const BALL_MODEL_RADIUS = 0.28; // ボールサイズを少し大きく
+        const BALL_DRAG_RADIUS = 0.7;  // ボールドラッグ当たり判定を大きく
+
+        const GROUND_WIDTH = 70; const GROUND_LENGTH = 100; const INGOAL_DEPTH = 10; const TOTAL_LENGTH = GROUND_LENGTH + 2 * INGOAL_DEPTH;
+        const TOUCH_LINE_5M = GROUND_WIDTH / 2 - 5;
+        const TOUCH_LINE_15M = GROUND_WIDTH / 2 - 15;
+
+
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+        let selectedObject = null; 
+        let dragOffset = new THREE.Vector3();
+        const dragPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+
+        const fontLoader = new THREE.FontLoader();
+        let helvetikerFont = null;
+        const TEMPLATE_STORAGE_KEY = 'rugbyTacticsTemplates_v6_2'; // キー名更新
+
+        let currentPhaseIndex = 0; 
+        const MAX_PHASES = 4; // 初期配置 + 3ラック
+        let phaseLayouts = []; 
+
+        // --- 初期化処理 ---
+        function init() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x87ceeb); 
+
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000); 
+            camera.position.set(0, 70, 60); 
+            camera.lookAt(0, 0, 0);         
+
+            renderer = new THREE.WebGLRenderer({ antialias: true }); 
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            document.getElementById('container').appendChild(renderer.domElement);
+
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.8); 
+            scene.add(ambientLight);
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 1.0); 
+            directionalLight.position.set(70, 90, 80); 
+            directionalLight.castShadow = true;
+            directionalLight.shadow.mapSize.width = 4096; directionalLight.shadow.mapSize.height = 4096;
+            directionalLight.shadow.camera.near = 0.5; directionalLight.shadow.camera.far = 500;
+            directionalLight.shadow.camera.left = -100; directionalLight.shadow.camera.right = 100;
+            directionalLight.shadow.camera.top = 100; directionalLight.shadow.camera.bottom = -100;
+            scene.add(directionalLight);
+
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true; controls.dampingFactor = 0.05; 
+            controls.screenSpacePanning = true; controls.minDistance = 10; controls.maxDistance = 300;
+            controls.maxPolarAngle = Math.PI / 2 - 0.01; 
+            controls.target.set(0,0,0); 
+
+            fontLoader.load('https://threejs.org/examples/fonts/helvetiker_regular.typeface.json',
+                function (font) {
+                    helvetikerFont = font;
+                    createGround(); createGoalPosts(); createCoach(); createBall(); 
+                    initializePhaseLayouts(); 
+                    setupEventListeners(); loadTemplatesToSelect(); updatePhaseIndicator();
+                    animate();
+                },
+                undefined,
+                function (error) {
+                    console.error('フォント読み込みエラー: ' + error);
+                    createGround(); createGoalPosts(); createCoach(); createBall();
+                    initializePhaseLayouts();
+                    setupEventListeners(); loadTemplatesToSelect(); updatePhaseIndicator();
+                    animate();
+                }
+            );
+        }
+
+        function initializePhaseLayouts() { /* ... (v6.1のコードを流用) ... */ }
+        function setupEventListeners() { /* ... (v6.1のコードを流用) ... */ }
+        function toggleLineoutOptions() { /* ... (v6.1のコードを流用) ... */ }
+        // (initializePhaseLayouts, setupEventListeners, toggleLineoutOptions はv6.1から変更なし)
+        function initializePhaseLayouts() { phaseLayouts = []; for (let i = 0; i < MAX_PHASES; i++) { phaseLayouts.push({ own: [], opponent: [], ball: null }); } }
+        function setupEventListeners() { window.addEventListener('resize', onWindowResize, false); document.getElementById('playType').addEventListener('change', toggleLineoutOptions); document.getElementById('setPlayButton').addEventListener('click', () => { currentPhaseIndex = 0; setupSelectedPlay(); updatePhaseIndicator(); }); document.getElementById('nextPhaseButton').addEventListener('click', goToNextPhase); document.getElementById('prevPhaseButton').addEventListener('click', goToPrevPhase); document.getElementById('applyEdgeRackFormationButton').addEventListener('click', applyEdgeRackFormation); document.getElementById('saveTemplateButton').addEventListener('click', saveCurrentLayoutAsTemplate); document.getElementById('loadTemplateButton').addEventListener('click', loadSelectedTemplate); document.getElementById('deleteTemplateButton').addEventListener('click', deleteSelectedTemplate); renderer.domElement.addEventListener('pointerdown', onPointerDown, false); renderer.domElement.addEventListener('pointermove', onPointerMove, false); renderer.domElement.addEventListener('pointerup', onPointerUp, false); }
+        function toggleLineoutOptions() { const playType = document.getElementById('playType').value; const lineoutOptionsDiv = document.getElementById('lineoutOptions'); lineoutOptionsDiv.classList.toggle('hidden', playType !== 'lineout');}
+
+
+        // --- グラウンド、ゴール作成 (v3ベース) ---
+        // (変更なし)
+        function createGround() { const groundMaterial = new THREE.MeshStandardMaterial({ color: 0x4CAF50, roughness: 0.9, metalness: 0.1 }); ground = new THREE.Mesh(new THREE.PlaneGeometry(GROUND_WIDTH, TOTAL_LENGTH), groundMaterial); ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground); const lineMaterial = new THREE.LineBasicMaterial({ color: 0xffffff, linewidth: 2 }); createLine([-GROUND_WIDTH / 2, 0, -TOTAL_LENGTH / 2], [-GROUND_WIDTH / 2, 0, TOTAL_LENGTH / 2], lineMaterial); createLine([GROUND_WIDTH / 2, 0, -TOTAL_LENGTH / 2], [GROUND_WIDTH / 2, 0, TOTAL_LENGTH / 2], lineMaterial); createLine([-GROUND_WIDTH / 2, 0, -GROUND_LENGTH / 2], [GROUND_WIDTH / 2, 0, -GROUND_LENGTH / 2], lineMaterial); createLine([-GROUND_WIDTH / 2, 0, GROUND_LENGTH / 2], [GROUND_WIDTH / 2, 0, GROUND_LENGTH / 2], lineMaterial); createLine([-GROUND_WIDTH / 2, 0, -TOTAL_LENGTH / 2], [GROUND_WIDTH / 2, 0, -TOTAL_LENGTH / 2], lineMaterial); createLine([-GROUND_WIDTH / 2, 0, TOTAL_LENGTH / 2], [GROUND_WIDTH / 2, 0, TOTAL_LENGTH / 2], lineMaterial); createLine([-GROUND_WIDTH / 2, 0, 0], [GROUND_WIDTH / 2, 0, 0], lineMaterial); createLine([-GROUND_WIDTH / 2, 0, -GROUND_LENGTH / 2 + 22], [GROUND_WIDTH / 2, 0, -GROUND_LENGTH / 2 + 22], lineMaterial); createLine([-GROUND_WIDTH / 2, 0, GROUND_LENGTH / 2 - 22], [GROUND_WIDTH / 2, 0, GROUND_LENGTH / 2 - 22], lineMaterial); createLine([-GROUND_WIDTH / 2, 0, 10], [GROUND_WIDTH / 2, 0, 10], lineMaterial); createLine([-GROUND_WIDTH / 2, 0, -10], [GROUND_WIDTH / 2, 0, -10], lineMaterial); createLine([-GROUND_WIDTH / 2 + 5, 0, -GROUND_LENGTH/2], [-GROUND_WIDTH / 2 + 5, 0, GROUND_LENGTH/2], lineMaterial, true); createLine([GROUND_WIDTH / 2 - 5, 0, -GROUND_LENGTH/2], [GROUND_WIDTH / 2 - 5, 0, GROUND_LENGTH/2], lineMaterial, true); createLine([-GROUND_WIDTH/2, 0, -GROUND_LENGTH/2 + 5], [GROUND_WIDTH/2, 0, -GROUND_LENGTH/2 + 5], lineMaterial, true); createLine([-GROUND_WIDTH/2, 0, GROUND_LENGTH/2 - 5], [GROUND_WIDTH/2, 0, GROUND_LENGTH/2 - 5], lineMaterial, true); createLine([-GROUND_WIDTH / 2 + 15, 0, -GROUND_LENGTH/2], [-GROUND_WIDTH / 2 + 15, 0, GROUND_LENGTH/2], lineMaterial, true); createLine([GROUND_WIDTH / 2 - 15, 0, -GROUND_LENGTH/2], [GROUND_WIDTH / 2 - 15, 0, GROUND_LENGTH/2], lineMaterial, true); }
+        function createLine(start, end, material, dashed = false) { const points = [new THREE.Vector3(...start), new THREE.Vector3(...end)]; const geometry = new THREE.BufferGeometry().setFromPoints(points); let line; if (dashed) { const dashMaterial = new THREE.LineDashedMaterial({ color: material.color, linewidth: 1, scale: 1, dashSize: 0.5, gapSize: 0.3 }); line = new THREE.Line(geometry, dashMaterial); line.computeLineDistances(); } else { line = new THREE.Line(geometry, material); } line.position.y = 0.01; scene.add(line); }
+        function createGoalPosts() { const postMaterial = new THREE.MeshStandardMaterial({ color: 0xffdd00, roughness: 0.1, metalness: 0.5 }); const postRadius = 0.15; const postHeight = 8; const crossbarHeight = 3.0; const crossbarWidth = 5.6; function createSingleGoal(goalZ) { const poleGeometry = new THREE.CylinderGeometry(postRadius, postRadius, postHeight, 16); const poleLeft = new THREE.Mesh(poleGeometry, postMaterial); poleLeft.position.set(-crossbarWidth / 2, postHeight / 2, goalZ); poleLeft.castShadow = true; scene.add(poleLeft); const poleRight = new THREE.Mesh(poleGeometry, postMaterial); poleRight.position.set(crossbarWidth / 2, postHeight / 2, goalZ); poleRight.castShadow = true; scene.add(poleRight); const crossbarGeometry = new THREE.CylinderGeometry(postRadius, postRadius, crossbarWidth, 16); const crossbar = new THREE.Mesh(crossbarGeometry, postMaterial); crossbar.position.set(0, crossbarHeight, goalZ); crossbar.rotation.z = Math.PI / 2; crossbar.castShadow = true; scene.add(crossbar); } createSingleGoal(-GROUND_LENGTH / 2); createSingleGoal(GROUND_LENGTH / 2); }
+
+        // --- ボール作成 (サイズ・色変更) ---
+        function createBall() {
+            const ballGeometry = new THREE.SphereGeometry(BALL_MODEL_RADIUS, 20, 16); // セグメント調整でより球体に
+            const ballMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0xffffe0, // オフホワイト (LightYellow)
+                roughness: 0.5, 
+                metalness: 0.05 
+            });
+            ball = new THREE.Mesh(ballGeometry, ballMaterial);
+            ball.castShadow = true;
+            ball.position.set(0, BALL_MODEL_RADIUS, -TOTAL_LENGTH / 2 - 5); 
+            ball.userData = { isBall: true }; 
+            scene.add(ball);
+        }
+        
+        // --- プレイヤー、コーチ作成 (v3の手足付き円柱モデルベース + v4のコーチ調整) ---
+        function createPlayerModel(isFW, teamColor, isCoach = false) { /* ... (v6.1のコードを流用) ... */ }
+        function createNumberSprite(numberText, textColor = 'white') { /* ... (v6.1のコードを流用) ... */ }
+        function createPlayer(team, initialPosition, number) { /* ... (v6.1のコードを流用) ... */ }
+        function createCoach() { /* ... (v6.1のコードを流用) ... */ }
+        // (createPlayerModel, createPlayer, createCoach はv6.1から変更なし)
+        function createPlayerModel(isFW, teamColor, isCoach = false) { const bodyRadius = isFW ? PLAYER_FW_RADIUS : PLAYER_BK_RADIUS; const bodyHeight = isCoach ? COACH_MODEL_HEIGHT : (isFW ? PLAYER_FW_HEIGHT : PLAYER_BK_HEIGHT); const headRadius = bodyRadius * HEAD_RADIUS_RATIO; const limbRadius = bodyRadius * LIMB_RADIUS_RATIO; const armLength = bodyHeight * ARM_LENGTH_RATIO; const legLength = bodyHeight * LEG_LENGTH_RATIO; const playerGroup = new THREE.Group(); const bodyMaterial = new THREE.MeshStandardMaterial({ color: isCoach ? 0x333333 : teamColor, roughness: 0.7, metalness: 0.1 }); const headMaterial = new THREE.MeshStandardMaterial({ color: 0xddccbb, roughness: 0.5 }); const bodyGeometry = new THREE.CylinderGeometry(bodyRadius, bodyRadius * (isFW ? 0.9 : 0.8), bodyHeight, 16); const bodyMesh = new THREE.Mesh(bodyGeometry, bodyMaterial); bodyMesh.castShadow = true; bodyMesh.receiveShadow = true; bodyMesh.position.y = isCoach ? bodyHeight / 2 : legLength + bodyHeight / 2; playerGroup.add(bodyMesh); const headGeometry = new THREE.SphereGeometry(headRadius, 16, 16); const headMesh = new THREE.Mesh(headGeometry, headMaterial); headMesh.position.y = bodyMesh.position.y + bodyHeight / 2 + headRadius * 0.9; headMesh.castShadow = true; playerGroup.add(headMesh); if (!isCoach) { const limbMaterial = bodyMaterial.clone(); const armGeometry = new THREE.CylinderGeometry(limbRadius, limbRadius * 0.8, armLength, 8); const leftArm = new THREE.Mesh(armGeometry, limbMaterial); leftArm.castShadow = true; leftArm.position.set(-bodyRadius * 1.1, bodyMesh.position.y + bodyHeight * 0.3, 0); leftArm.rotation.z = Math.PI / 6; playerGroup.add(leftArm); const rightArm = leftArm.clone(); rightArm.position.x *= -1; rightArm.rotation.z *= -1; playerGroup.add(rightArm); const legGeometry = new THREE.CylinderGeometry(limbRadius * 1.2, limbRadius, legLength, 8); const leftLeg = new THREE.Mesh(legGeometry, limbMaterial); leftLeg.castShadow = true; leftLeg.position.set(-bodyRadius * 0.5, legLength / 2, 0); playerGroup.add(leftLeg); const rightLeg = leftLeg.clone(); rightLeg.position.x *= -1; playerGroup.add(rightLeg); } return playerGroup; }
+        function createNumberSprite(numberText, textColor = '#ADD8E6') { if (!helvetikerFont) return null; const canvas = document.createElement('canvas'); const context = canvas.getContext('2d'); const fontSize = 72; context.font = `bold ${fontSize}px Arial`; const textMetrics = context.measureText(numberText); const textWidth = textMetrics.width; canvas.width = textWidth + 30; canvas.height = fontSize + 15; context.font = `bold ${fontSize}px Arial`; context.fillStyle = textColor; context.textAlign = 'center'; context.textBaseline = 'middle'; context.fillText(numberText, canvas.width / 2, canvas.height / 2); const texture = new THREE.CanvasTexture(canvas); texture.needsUpdate = true; const material = new THREE.SpriteMaterial({ map: texture, depthTest: false, transparent: true, opacity: 0.95 }); const sprite = new THREE.Sprite(material); sprite.scale.set(canvas.width / 120, canvas.height / 120, 1.0); return sprite; }
+        function createPlayer(team, initialPosition, number) { const isFW = number >= 1 && number <= 8; const color = team === 'own' ? 0x007bff : 0xdc3545; const playerObject = new THREE.Group(); const model = createPlayerModel(isFW, color, false); playerObject.add(model); if (number !== null && helvetikerFont) { const numberColor = team === 'own' ? '#87CEFA' : 'black'; /* 味方チームの番号色を明るい青に変更 */ const numberSprite = createNumberSprite(number.toString(), numberColor); if (numberSprite) { const playerBodyHeight = isFW ? PLAYER_FW_HEIGHT : PLAYER_BK_HEIGHT; const legLen = playerBodyHeight * LEG_LENGTH_RATIO; const headRad = (isFW ? PLAYER_FW_RADIUS : PLAYER_BK_RADIUS) * HEAD_RADIUS_RATIO; numberSprite.position.y = legLen + playerBodyHeight + headRad * 2 + 0.7; playerObject.add(numberSprite); } } playerObject.position.copy(initialPosition); playerObject.userData = { team: team, number: number, isPlayer: true, isFW: isFW, baseModel: model }; scene.add(playerObject); players[team].push(playerObject); return playerObject; }
+        function createCoach() { const coachColor = 0x333333; const coachModel = createPlayerModel(false, coachColor, true); coach = new THREE.Group(); coach.add(coachModel); if (helvetikerFont) { const nameSprite = createNumberSprite("KENYU", "white"); if (nameSprite) { nameSprite.position.y = COACH_MODEL_HEIGHT + PLAYER_BK_RADIUS * HEAD_RADIUS_RATIO * 2 + 1.0; nameSprite.scale.set(nameSprite.scale.x * 1.8, nameSprite.scale.y * 1.8, 1); coach.add(nameSprite); } } coach.position.set(-GROUND_WIDTH / 2 - 7, 0, 0); coach.rotation.y = Math.PI / 2; scene.add(coach); }
+
+
+        // --- セットプレー配置 (ラインアウトAT斜め配置修正) ---
+        function clearSceneContent() { /* ... (v6.1のコードを流用) ... */ }
+        function setupSelectedPlay() { /* ... (v6.1のコードを流用、選手表示ロジックの安定化) ... */ }
+        function setupScrum(areaKey) { /* ... (v6.1のコードを流用) ... */ }
+        function setupLineout(areaKey, numLineoutPlayers) { /* ... (v6.1のAT側斜め配置修正済み) ... */ }
+        function setupKickoff(areaKey) { /* ... (v6.1のコードを流用) ... */ }
+        // (clearSceneContent, setupScrum, setupKickoff はv6.1から変更なし)
+        function clearSceneContent() { players.own.forEach(pGroup => scene.remove(pGroup)); players.opponent.forEach(pGroup => scene.remove(pGroup)); players.own = []; players.opponent = []; if (ball) ball.position.set(0, BALL_MODEL_RADIUS, -TOTAL_LENGTH / 2 - 5); }
+        function setupSelectedPlay() { clearSceneContent(); if (!phaseLayouts[currentPhaseIndex]) { initializePhaseLayouts(); } phaseLayouts[currentPhaseIndex] = { own: [], opponent: [], ball: null }; const playType = document.getElementById('playType').value; const area = document.getElementById('playArea').value; if (playType === 'scrum') setupScrum(area); else if (playType === 'lineout') { const lineoutPlayerCount = parseInt(document.getElementById('lineoutPlayers').value); setupLineout(area, lineoutPlayerCount); } else if (playType === 'kickoff') setupKickoff(area); if (playType !== 'none' && ball) { ball.position.set(0, BALL_MODEL_RADIUS, 0); } saveCurrentPhaseLayout(); }
+        function setupScrum(areaKey) { let basePos = new THREE.Vector3(0,0,0); let ownFactor = 1; switch(areaKey) { case 'center_22m_own': basePos.z = -GROUND_LENGTH / 2 + 22; break; case 'left_goal_5m_own': basePos.set(-10, 0, -GROUND_LENGTH / 2 + 5); break; case 'halfway_right_15m': basePos.set(GROUND_WIDTH/2 - 15 - PLAYER_FW_RADIUS * 3, 0, 0); break; case 'center_22m_opponent': basePos.z = GROUND_LENGTH / 2 - 22; ownFactor = -1; break; default: basePos.z = -GROUND_LENGTH / 2 + 22; } const fwSpacing = PLAYER_FW_RADIUS * 2.5; const ownFwdPositions = [ { x: 0, z: 0, num: 2 }, { x: -fwSpacing, z: 0, num: 1 }, { x: fwSpacing, z: 0, num: 3 }, { x: -fwSpacing*0.7, z: fwSpacing*0.8 * ownFactor, num: 4 }, { x: fwSpacing*0.7, z: fwSpacing*0.8 * ownFactor, num: 5 }, { x: -fwSpacing*1.4, z: fwSpacing*0.6 * ownFactor, num: 6 }, { x: fwSpacing*1.4, z: fwSpacing*0.6 * ownFactor, num: 7 }, { x: 0, z: fwSpacing*1.6 * ownFactor, num: 8 } ]; const oppFwdPositions = ownFwdPositions.map(p => ({ x: p.x, z: (p.z - fwSpacing * 0.5) * -1 * ownFactor, num: p.num })); ownFwdPositions.forEach(pos => { createPlayer('own', new THREE.Vector3(basePos.x + pos.x, basePos.y, basePos.z + pos.z), pos.num); }); oppFwdPositions.forEach(pos => { createPlayer('opponent', new THREE.Vector3(basePos.x + pos.x, basePos.y, basePos.z + pos.z), pos.num); }); const shOwnPos = new THREE.Vector3(basePos.x - PLAYER_BK_RADIUS * 3, basePos.y, basePos.z + (fwSpacing * 2.2 * ownFactor)); createPlayer('own', shOwnPos, 9); const shOppPos = new THREE.Vector3(basePos.x + PLAYER_BK_RADIUS * 3, basePos.y, basePos.z - (fwSpacing * 2.2 * ownFactor)); createPlayer('opponent', shOppPos, 9); const backsLineDepth = 8 * ownFactor; const backsSpacingX = 8; const ownBacksBaseZ = basePos.z + (fwSpacing * 2.5 * ownFactor) + backsLineDepth; const oppBacksBaseZ = basePos.z - (fwSpacing * 2.5 * ownFactor) - backsLineDepth; const backsLine = [ { num: 10, xOffset: 0 }, { num: 12, xOffset: -backsSpacingX }, { num: 13, xOffset: backsSpacingX }, { num: 11, xOffset: -backsSpacingX * 2 }, { num: 14, xOffset: backsSpacingX * 2 }, { num: 15, xOffset: 0, zOffset: 10 * ownFactor } ]; backsLine.forEach(bk => { createPlayer('own', new THREE.Vector3(basePos.x + bk.xOffset, basePos.y, ownBacksBaseZ + (bk.zOffset || 0)), bk.num); createPlayer('opponent', new THREE.Vector3(basePos.x + bk.xOffset, basePos.y, oppBacksBaseZ - (bk.zOffset || 0)), bk.num); }); }
+        function setupLineout(areaKey, numLineoutPlayers) { let basePos = new THREE.Vector3(0,0,0); let lineoutFormationX = 0; let ownFactor = 1; let touchLineX; switch(areaKey) { case 'left_touch_22m_own_lineout': basePos.z = -GROUND_LENGTH / 2 + 22; touchLineX = -GROUND_WIDTH / 2; lineoutFormationX = touchLineX + 5; break; case 'right_touch_halfway_lineout': basePos.z = 0; touchLineX = GROUND_WIDTH / 2; lineoutFormationX = touchLineX - 5; break; case 'left_goal_5m_opponent_lineout': basePos.z = GROUND_LENGTH / 2 - 5; touchLineX = -GROUND_WIDTH / 2; lineoutFormationX = touchLineX + 5; ownFactor = -1; break; default: basePos.z = -GROUND_LENGTH / 2 + 22; touchLineX = -GROUND_WIDTH / 2; lineoutFormationX = touchLineX + 5; } basePos.x = lineoutFormationX; const lineoutFwdNumbers = { 4: [1,3,4,5], 5: [1,3,4,5,6], 6: [1,3,4,5,6,7], 7: [1,3,4,5,6,7,8] }; const participatingFw = lineoutFwdNumbers[numLineoutPlayers] || lineoutFwdNumbers[7]; const throwerZ = basePos.z - (PLAYER_FW_RADIUS * 1.5 * ownFactor); createPlayer('own', new THREE.Vector3(touchLineX, 0, throwerZ), 2); const lineoutPlayerSpacingX = PLAYER_FW_RADIUS * 3.5; const lineoutStartOffset = (participatingFw.length -1) * lineoutPlayerSpacingX / 2; const diagonalOffsetFactor = 0.6; participatingFw.forEach((num, i) => { const playerX = basePos.x - lineoutStartOffset + (i * lineoutPlayerSpacingX); const playerZ_AT = basePos.z + (i * diagonalOffsetFactor * ownFactor); createPlayer('own', new THREE.Vector3(playerX, 0, playerZ_AT), num); const playerZ_DF = basePos.z + (2 * ownFactor); createPlayer('opponent', new THREE.Vector3(playerX, 0, playerZ_DF), num); }); const shZ = basePos.z; const shX = lineoutFormationX + (touchLineX < 0 ? 10 : -10); createPlayer('own', new THREE.Vector3(shX, 0, shZ + (1 * ownFactor * diagonalOffsetFactor * (participatingFw.length/2))), 9); createPlayer('opponent', new THREE.Vector3(shX, 0, shZ + (3 * ownFactor)), 9); const allPlayerNumbers = Array.from({length: 15}, (_, i) => i + 1); const lineoutParticipantsOwn = [2, ...participatingFw, 9]; const remainingOwnPlayers = allPlayerNumbers.filter(num => !lineoutParticipantsOwn.includes(num)); let standOffOwn = players.own.find(p => p.userData.number === 10); if (!standOffOwn && remainingOwnPlayers.includes(10)) { standOffOwn = createPlayer('own', new THREE.Vector3(shX + (touchLineX < 0 ? 7 : -7), 0, shZ + (2 * ownFactor * diagonalOffsetFactor * (participatingFw.length/2))), 10); remainingOwnPlayers.splice(remainingOwnPlayers.indexOf(10), 1); } const backsLineXStart = standOffOwn ? standOffOwn.position.x : shX + (touchLineX < 0 ? 7 : -7); const backsLineZStart = standOffOwn ? standOffOwn.position.z : shZ + (2 * ownFactor * diagonalOffsetFactor * (participatingFw.length/2)); const backsSpacing = 7; remainingOwnPlayers.forEach((num, i) => { const xPos = backsLineXStart + (touchLineX < 0 ? (i+1) * backsSpacing : -(i+1) * backsSpacing); createPlayer('own', new THREE.Vector3(xPos, 0, backsLineZStart), num); }); const remainingOpponentPlayers = allPlayerNumbers.filter(num => ![2, ...participatingFw, 9, 10].includes(num)); remainingOpponentPlayers.forEach((num, i) => { const xPos = backsLineXStart + (touchLineX < 0 ? (i+1) * backsSpacing : -(i+1) * backsSpacing); createPlayer('opponent', new THREE.Vector3(xPos, 0, backsLineZStart + (5 * ownFactor)), num); }); }
+        function setupKickoff(areaKey) { const centerZ = 0; const ownFactor = -1; const kickingTeamPositions = [ { num: 7, x: -25, z: centerZ + 2 * ownFactor }, { num: 11, x: -20, z: centerZ + 8 * ownFactor }, { num: 5, x: -15, z: centerZ + 2 * ownFactor }, { num: 12, x: -10, z: centerZ + 8 * ownFactor }, { num: 1, x: -5, z: centerZ + 2 * ownFactor },  { num: 8, x: -2, z: centerZ + 8 * ownFactor }, { num: 10, x: 0, z: centerZ + 0 * ownFactor }, { num: 2, x: 2, z: centerZ + 8 * ownFactor },   { num: 3, x: 5, z: centerZ + 2 * ownFactor }, { num: 13, x: 10, z: centerZ + 8 * ownFactor }, { num: 4, x: 15, z: centerZ + 2 * ownFactor }, { num: 14, x: 20, z: centerZ + 8 * ownFactor }, { num: 6, x: 25, z: centerZ + 2 * ownFactor } ]; kickingTeamPositions.forEach(p => { createPlayer('own', new THREE.Vector3(p.x, 0, p.z), p.num); }); createPlayer('own', new THREE.Vector3(0, 0, centerZ + 15 * ownFactor), 15); const kickerPos = kickingTeamPositions.find(p=>p.num===10); createPlayer('own', new THREE.Vector3(kickerPos.x + 3, 0, centerZ + 2 * ownFactor), 9); const receivingTeamPositions = [ { num: 11, x: -20, z: centerZ - 10 * ownFactor }, { num: 12, x: -10, z: centerZ - 10 * ownFactor }, { num: 2, x: 0, z: centerZ - 10 * ownFactor },    { num: 13, x: 10, z: centerZ - 10 * ownFactor }, { num: 14, x: 20, z: centerZ - 10 * ownFactor }, { num: 4, x: -15, z: centerZ - 20 * ownFactor }, { num: 1, x: -5, z: centerZ - 20 * ownFactor }, { num: 3, x: 5, z: centerZ - 20 * ownFactor },   { num: 5, x: 15, z: centerZ - 20 * ownFactor }, { num: 6, x: -10, z: centerZ - 30 * ownFactor }, { num: 8, x: 0, z: centerZ - 30 * ownFactor }, { num: 7, x: 10, z: centerZ - 30 * ownFactor }, { num: 15, x: 0, z: centerZ - 40 * ownFactor },  { num: 9, x: -5, z: centerZ - 40 * ownFactor + 2 }, { num: 10, x: 5, z: centerZ - 40 * ownFactor + 2} ]; receivingTeamPositions.forEach(p => { createPlayer('opponent', new THREE.Vector3(p.x, 0, p.z), p.num); }); }
+
+        // --- 一括移動機能 (1-3-3-1 エッジラック) ---
+        function applyEdgeRackFormation() { /* ... (v6.1のコードを流用) ... */ }
+        // (applyEdgeRackFormation はv6.1から変更なし)
+        function applyEdgeRackFormation() { const rackSide = document.getElementById('edgeRackSide').value; const RACK_OFFSET_X = rackSide === 'left' ? -TOUCH_LINE_15M + 2 : TOUCH_LINE_15M -2; const RACK_Z = 0; clearSceneContent(); if (ball) ball.position.set(RACK_OFFSET_X, BALL_MODEL_RADIUS, RACK_Z); createPlayer('own', new THREE.Vector3(RACK_OFFSET_X, 0, RACK_Z + 0.5), 15); createPlayer('own', new THREE.Vector3(RACK_OFFSET_X + (rackSide === 'left' ? 0.5 : -0.5), 0, RACK_Z), rackSide === 'left' ? 14 : 11); createPlayer('own', new THREE.Vector3(RACK_OFFSET_X + (rackSide === 'left' ? -0.5 : 0.5), 0, RACK_Z), 6); const shX = RACK_OFFSET_X + (rackSide === 'left' ? 1.5 : -1.5); createPlayer('own', new THREE.Vector3(shX, 0, RACK_Z), 9); const pod1FwdNumbers = [1, 2, 3]; const pod1SO = 10; const pod1BaseX = shX + (rackSide === 'left' ? 4 : -4); createPlayer('own', new THREE.Vector3(pod1BaseX, 0, RACK_Z -1), pod1FwdNumbers[0]); createPlayer('own', new THREE.Vector3(pod1BaseX, 0, RACK_Z +1), pod1FwdNumbers[1]); createPlayer('own', new THREE.Vector3(pod1BaseX + (rackSide === 'left' ? 1.5 : -1.5), 0, RACK_Z), pod1FwdNumbers[2]); createPlayer('own', new THREE.Vector3(pod1BaseX + (rackSide === 'left' ? 2.5 : -2.5), 0, RACK_Z - 2), pod1SO); const pod2FwdNumbers = [4, 5, 8]; const pod2CTB = 12; const pod2BaseX = pod1BaseX + (rackSide === 'left' ? 7 : -7); createPlayer('own', new THREE.Vector3(pod2BaseX, 0, RACK_Z -1), pod2FwdNumbers[0]); createPlayer('own', new THREE.Vector3(pod2BaseX, 0, RACK_Z +1), pod2FwdNumbers[1]); createPlayer('own', new THREE.Vector3(pod2BaseX + (rackSide === 'left' ? 1.5 : -1.5), 0, RACK_Z), pod2FwdNumbers[2]); createPlayer('own', new THREE.Vector3(pod2BaseX + (rackSide === 'left' ? 2.5 : -2.5), 0, RACK_Z - 2), pod2CTB); const remainingBkBaseX = pod2BaseX + (rackSide === 'left' ? 6 : -6); createPlayer('own', new THREE.Vector3(remainingBkBaseX, 0, RACK_Z - 3), 13); createPlayer('own', new THREE.Vector3(remainingBkBaseX + (rackSide === 'left' ? 5 : -5), 0, RACK_Z - 5), rackSide === 'left' ? 11 : 14); const defLineZ = RACK_Z + 7; const defSpacingX = GROUND_WIDTH / 14; const defNumbers = [1,2,3,4,5,6,7,8,9,10,11,12,13]; for (let i = 0; i < 13; i++) { createPlayer('opponent', new THREE.Vector3(-GROUND_WIDTH/2 + defSpacingX/2 + i * defSpacingX, 0, defLineZ), defNumbers[i]); } createPlayer('opponent', new THREE.Vector3( (rackSide === 'left' ? 1 : -1) * (TOUCH_LINE_5M -2) , 0, defLineZ + 5), 15); createPlayer('opponent', new THREE.Vector3( (rackSide === 'left' ? -1 : 1) * (TOUCH_LINE_5M -2) , 0, defLineZ + 3), 14); saveCurrentPhaseLayout(); alert(`1-3-3-1 (${rackSide === 'left' ? '左' : '右'}エッジラック) フォーメーションを配置しました。`); }
+
+
+        // --- マウス/タッチイベント処理 (v4流用) ---
+        function getIntersectedObject(pointerEvent) { /* ... (v6.1のコードを流用) ... */ }
+        function onPointerDown(event) { /* ... (v6.1のコードを流用) ... */ }
+        function onPointerMove(event) { /* ... (v6.1のコードを流用) ... */ }
+        function onPointerUp() { /* ... (v6.1のコードを流用) ... */ }
+        // (getIntersectedObject, onPointerDown, onPointerMove, onPointerUp はv6.1から変更なし)
+        function getIntersectedObject(pointerEvent) { mouse.x = (pointerEvent.clientX / window.innerWidth) * 2 - 1; mouse.y = -(pointerEvent.clientY / window.innerHeight) * 2 + 1; raycaster.setFromCamera(mouse, camera); const objectsToIntersectModels = []; players.own.forEach(group => {if(group.userData.baseModel) objectsToIntersectModels.push(group.userData.baseModel)}); players.opponent.forEach(group => {if(group.userData.baseModel) objectsToIntersectModels.push(group.userData.baseModel)}); const meshesToIntersect = []; objectsToIntersectModels.forEach(modelGroup => { if(modelGroup) modelGroup.traverse(child => { if (child.isMesh) meshesToIntersect.push(child); }); }); if (ball) { const ballHitSphere = new THREE.Mesh(new THREE.SphereGeometry(BALL_DRAG_RADIUS, 8, 8), new THREE.MeshBasicMaterial({visible: false, transparent: true, opacity: 0})); ballHitSphere.position.copy(ball.position); ballHitSphere.userData.isBallHitArea = true; ballHitSphere.userData.actualBall = ball; meshesToIntersect.push(ballHitSphere); } const intersects = raycaster.intersectObjects(meshesToIntersect, true); if (intersects.length > 0) { let intersectedMesh = intersects[0].object; if (intersectedMesh.userData.isBallHitArea) return { object: intersectedMesh.userData.actualBall, point: intersects[0].point }; let parentGroup = intersectedMesh.parent; while (parentGroup) { if (parentGroup.userData && parentGroup.userData.isPlayer) return { object: parentGroup, point: intersects[0].point }; if (parentGroup.parent && parentGroup.parent.userData && parentGroup.parent.userData.isPlayer) return { object: parentGroup.parent, point: intersects[0].point }; if (!parentGroup.parent || parentGroup === scene) break; parentGroup = parentGroup.parent; } } return null; }
+        function onPointerDown(event) { const intersected = getIntersectedObject(event); if (intersected && intersected.object && (intersected.object.userData.isPlayer || intersected.object.userData.isBall)) { selectedObject = intersected.object; controls.enabled = false; const targetForIntersection = new THREE.Vector3(); if (raycaster.ray.intersectPlane(dragPlane, targetForIntersection)) { dragOffset.copy(targetForIntersection).sub(selectedObject.position); } else { dragOffset.set(0,0,0); } } }
+        function onPointerMove(event) { if (selectedObject) { mouse.x = (event.clientX / window.innerWidth) * 2 - 1; mouse.y = -(event.clientY / window.innerHeight) * 2 + 1; raycaster.setFromCamera(mouse, camera); const intersectionPoint = new THREE.Vector3(); if (raycaster.ray.intersectPlane(dragPlane, intersectionPoint)) { selectedObject.position.copy(intersectionPoint.sub(dragOffset)); if (selectedObject.userData.isBall) { selectedObject.position.y = BALL_MODEL_RADIUS; } else { selectedObject.position.y = 0; } } } }
+        function onPointerUp() { if (selectedObject) { saveCurrentPhaseLayout(); selectedObject = null; controls.enabled = true; } }
+        
+        // --- フェーズ管理機能 (v4流用、goToNextPhase修正) ---
+        function updatePhaseIndicator() { /* ... (v6.1のコードを流用) ... */ }
+        function saveCurrentPhaseLayout() { /* ... (v6.1のコードを流用) ... */ }
+        function loadPhaseLayout(phaseIndex) { /* ... (v6.1のコードを流用) ... */ }
+        function goToNextPhase() { /* ... (v6.1のコードを流用) ... */ }
+        function goToPrevPhase() { /* ... (v6.1のコードを流用) ... */ }
+        // (updatePhaseIndicator, saveCurrentPhaseLayout, loadPhaseLayout, goToPrevPhase はv6.1から変更なし)
+        function updatePhaseIndicator() { const indicator = document.getElementById('currentPhaseIndicator'); let phaseName = "初期配置"; if (currentPhaseIndex === 1) phaseName = `1st ラック`; else if (currentPhaseIndex === 2) phaseName = `2nd ラック`; else if (currentPhaseIndex === 3) phaseName = `3rd ラック`; indicator.textContent = `現在のフェーズ: ${phaseName}`; }
+        function saveCurrentPhaseLayout() { if (!phaseLayouts[currentPhaseIndex]) { phaseLayouts[currentPhaseIndex] = { own: [], opponent: [], ball: null }; } phaseLayouts[currentPhaseIndex].own = players.own.map(p => ({ number: p.userData.number, x: p.position.x, y: p.position.y, z: p.position.z, rotY: p.rotation.y })); phaseLayouts[currentPhaseIndex].opponent = players.opponent.map(p => ({ number: p.userData.number, x: p.position.x, y: p.position.y, z: p.position.z, rotY: p.rotation.y })); if (ball) { phaseLayouts[currentPhaseIndex].ball = { x: ball.position.x, y: ball.position.y, z: ball.position.z }; } }
+        function loadPhaseLayout(phaseIndex) { clearSceneContent(); const layout = phaseLayouts[phaseIndex]; if (layout && layout.own && layout.opponent) { layout.own.forEach(pd => { const player = createPlayer('own', new THREE.Vector3(pd.x, pd.y, pd.z), pd.number); if (player && pd.rotY !== undefined) player.rotation.y = pd.rotY; }); layout.opponent.forEach(pd => { const player = createPlayer('opponent', new THREE.Vector3(pd.x, pd.y, pd.z), pd.number); if (player && pd.rotY !== undefined) player.rotation.y = pd.rotY; }); if (layout.ball && ball) { ball.position.set(layout.ball.x, layout.ball.y, layout.ball.z); ball.position.y = Math.max(ball.position.y, BALL_MODEL_RADIUS); } else if (ball) { ball.position.set(0, BALL_MODEL_RADIUS, -TOTAL_LENGTH / 2 - 10); } } else { if (ball) ball.position.set(0, BALL_MODEL_RADIUS, -TOTAL_LENGTH / 2 - 10); if (!phaseLayouts[phaseIndex]) { phaseLayouts[phaseIndex] = { own: [], opponent: [], ball: null }; } } }
+        function goToNextPhase() { if (currentPhaseIndex < MAX_PHASES - 1) { saveCurrentPhaseLayout(); currentPhaseIndex++; if (!phaseLayouts[currentPhaseIndex] || (phaseLayouts[currentPhaseIndex].own.length === 0 && phaseLayouts[currentPhaseIndex].opponent.length === 0 && !phaseLayouts[currentPhaseIndex].ball) ) { if (currentPhaseIndex > 0 && phaseLayouts[currentPhaseIndex - 1]) { phaseLayouts[currentPhaseIndex] = JSON.parse(JSON.stringify(phaseLayouts[currentPhaseIndex - 1])); } else { phaseLayouts[currentPhaseIndex] = { own: [], opponent: [], ball: null }; } } loadPhaseLayout(currentPhaseIndex); updatePhaseIndicator(); } else { alert("これ以上先のフェーズはありません。"); } }
+        function goToPrevPhase() { if (currentPhaseIndex > 0) { saveCurrentPhaseLayout(); currentPhaseIndex--; loadPhaseLayout(currentPhaseIndex); updatePhaseIndicator(); } else { alert("これより前のフェーズはありません。"); } }
+
+
+        // --- 配置テンプレート機能 (v4流用) ---
+        function saveCurrentLayoutAsTemplate() { /* ... (v6.1のコードを流用) ... */ }
+        function loadTemplatesToSelect() { /* ... (v6.1のコードを流用) ... */ }
+        function loadSelectedTemplate() { /* ... (v6.1のコードを流用) ... */ }
+        function deleteSelectedTemplate() { /* ... (v6.1のコードを流用) ... */ }
+        // (saveCurrentLayoutAsTemplate, loadTemplatesToSelect, loadSelectedTemplate, deleteSelectedTemplate はv6.1から変更なし)
+        function saveCurrentLayoutAsTemplate() { const templateNameInput = document.getElementById('templateName'); const templateName = templateNameInput.value.trim(); if (!templateName) { alert("テンプレート名を入力してください。"); return; } saveCurrentPhaseLayout(); const allPhasesData = phaseLayouts.map(phase => ({ own: phase.own.map(p => ({ number: p.number, x: p.x, y: p.y, z: p.z, rotY: p.rotY })), opponent: phase.opponent.map(p => ({ number: p.number, x: p.x, y: p.y, z: p.z, rotY: p.rotY })), ball: phase.ball ? { x: phase.ball.x, y: phase.ball.y, z: phase.ball.z } : null })); try { let templates = JSON.parse(localStorage.getItem(TEMPLATE_STORAGE_KEY)) || {}; templates[templateName] = allPhasesData; localStorage.setItem(TEMPLATE_STORAGE_KEY, JSON.stringify(templates)); templateNameInput.value = ''; loadTemplatesToSelect(); alert(`テンプレート「${templateName}」を保存しました。`); } catch (e) { console.error("テンプレート保存エラー:", e); alert("テンプレートの保存に失敗しました。"); } }
+        function loadTemplatesToSelect() { const selectElement = document.getElementById('loadTemplateSelect'); selectElement.innerHTML = '<option value="">選択してください</option>'; try { const templates = JSON.parse(localStorage.getItem(TEMPLATE_STORAGE_KEY)) || {}; for (const name in templates) { const option = document.createElement('option'); option.value = name; option.textContent = name; selectElement.appendChild(option); } } catch (e) { console.error("テンプレートリスト読み込みエラー:", e); } }
+        function loadSelectedTemplate() { const selectElement = document.getElementById('loadTemplateSelect'); const templateName = selectElement.value; if (!templateName) { alert("読み込むテンプレートを選択してください。"); return; } try { const templates = JSON.parse(localStorage.getItem(TEMPLATE_STORAGE_KEY)) || {}; const loadedAllPhasesData = templates[templateName]; if (loadedAllPhasesData && Array.isArray(loadedAllPhasesData)) { initializePhaseLayouts(); for(let i=0; i < Math.min(loadedAllPhasesData.length, MAX_PHASES); i++) { phaseLayouts[i] = loadedAllPhasesData[i]; } currentPhaseIndex = 0; loadPhaseLayout(currentPhaseIndex); updatePhaseIndicator(); alert(`テンプレート「${templateName}」を読み込みました。`); } else { alert("選択されたテンプレートのデータ形式が正しくありません。"); } } catch (e) { console.error("テンプレート読み込みエラー:", e); alert("テンプレートの読み込みに失敗しました。"); } }
+        function deleteSelectedTemplate() { const selectElement = document.getElementById('loadTemplateSelect'); const templateName = selectElement.value; if (!templateName) { alert("削除するテンプレートを選択してください。"); return; } if (!confirm(`本当にテンプレート「${templateName}」を削除しますか？`)) { return; } try { let templates = JSON.parse(localStorage.getItem(TEMPLATE_STORAGE_KEY)) || {}; if (templates[templateName]) { delete templates[templateName]; localStorage.setItem(TEMPLATE_STORAGE_KEY, JSON.stringify(templates)); loadTemplatesToSelect(); alert(`テンプレート「${templateName}」を削除しました。`); } else { alert("選択されたテンプレートが見つかりません。"); } } catch (e) { console.error("テンプレート削除エラー:", e); alert("テンプレートの削除に失敗しました。"); } }
+
+
+        // --- ウィンドウリサイズ処理 ---
+        function onWindowResize() { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); }
+
+        // --- アニメーションループ ---
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+            // ここに将来的にアニメーションの更新処理を追加
+        }
+
+        // --- 実行開始 ---
+        init();
+    </script>
+</body>
+</html>
